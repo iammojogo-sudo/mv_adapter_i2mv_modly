@@ -43,7 +43,8 @@ class MVAdapterGenerator(BaseGenerator):
         check = self.download_check
         has_adapter = (self.model_dir / check).exists() if check else False
         sdxl_base = self.model_dir / "stable-diffusion-xl-base-1.0" / "model_index.json"
-        has_base = sdxl_base.exists()
+        sdxl_alt = self.model_dir.parent / "sdxl-base" / "stable-diffusion-xl-base-1.0" / "model_index.json"
+        has_base = sdxl_base.exists() or sdxl_alt.exists()
         return has_adapter and has_base
 
     def _auto_download(self) -> None:
@@ -55,7 +56,7 @@ class MVAdapterGenerator(BaseGenerator):
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
         # MV-Adapter i2mv adapter weight (from the manifest hf_repo).
-        # SDXL base model is downloaded by setup.py at install time.
+        # SDXL base model is downloaded via the "SDXL Base Model" node button.
         if not (self.model_dir / self.download_check).exists():
             print(f"[mv-adapter] Downloading adapter {self.hf_repo} ...")
             snapshot_download(

@@ -86,6 +86,21 @@
           "tooltip": "Remove background from the reference image before generating views."
         }
       ]
+    },
+    {
+      "id": "sdxl-base",
+      "name": "SDXL Base Model",
+      "inputs": [],
+      "output": "",
+      "hf_repo": "stabilityai/stable-diffusion-xl-base-1.0",
+      "download_check": "stable-diffusion-xl-base-1.0/model_index.json",
+      "hf_skip_prefixes": [
+        "*.md",
+        "LICENSE",
+        "NOTICE",
+        ".gitattributes"
+      ],
+      "params_schema": []
     }
   ]
 }

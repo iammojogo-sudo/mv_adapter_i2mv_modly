@@ -101,6 +101,7 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
         import glob as _glob
         _cand_base = (
             Path(model_dir) / "stable-diffusion-xl-base-1.0",
+            Path(model_dir).parent / "sdxl-base" / "stable-diffusion-xl-base-1.0",
         )
         for c in _cand_base:
             if (c / "model_index.json").exists():
