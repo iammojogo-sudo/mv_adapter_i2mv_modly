@@ -141,20 +141,24 @@ def setup(
     print("[setup] mvadapter copied to", dest)
 
     # The upstream package eagerly imports nvdiffrast (a CUDA-extension that
-    # requires a compiler to build) from mvadapter.utils.__init__. We only use
-    # the i2mv pipelines (no mesh/texture), so make that import lazy. This also
-    # keeps the package importable on systems without a C++ toolchain.
-    utils_init = dest / "__init__.py"
+    # requires a compiler to build) from mvadapter.utils.mesh_utils. We only use
+    # the i2mv pipelines (no mesh/texture), so neutralize the eager imports:
+    #  - empty out mvadapter/utils/mesh_utils/__init__.py (it pulls nvdiffrast
+    #    via render/camera on import)
+    #  - drop the direct mesh_utils import from mvadapter/utils/__init__.py
+    # This keeps the package importable on systems without a C++ toolchain.
+    mesh_init = dest / "utils" / "mesh_utils" / "__init__.py"
+    if mesh_init.exists():
+        mesh_init.write_text(
+            "# nvdiffrast (CUDA build) imports disabled for i2mv-only use.\n",
+            encoding="utf-8",
+        )
+    utils_init = dest / "utils" / "__init__.py"
     if utils_init.exists():
         src = utils_init.read_text(encoding="utf-8")
         patched = src.replace(
             "from .mesh_utils.camera import get_camera, get_orthogonal_camera\n",
-            "def get_camera(*a, **k):\n"
-            "    from .mesh_utils.camera import get_camera as _g\n"
-            "    return _g(*a, **k)\n"
-            "def get_orthogonal_camera(*a, **k):\n"
-            "    from .mesh_utils.camera import get_orthogonal_camera as _g\n"
-            "    return _g(*a, **k)\n",
+            "",
         )
         utils_init.write_text(patched, encoding="utf-8")
 
