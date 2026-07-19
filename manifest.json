@@ -1,0 +1,59 @@
+{
+  "id": "mv-adapter",
+  "name": "MV-Adapter (Multiview)",
+  "type": "model",
+  "source": "https://github.com/iammojogo-sudo/hunyuan3d-2mv_modly",
+  "description": "Generates 6 orthographic reference views from a single input image using MV-Adapter I2MV-SDXL at 768x768. Outputs front/right/back/left/top/bottom views plus a 1x6 grid to feed the Texture Mesh node.",
+  "version": "1.0.0",
+  "author": "iammojogo",
+  "generator_class": "MVAdapterGenerator",
+  "tags": ["3d-generation", "multi-view", "reference-views"],
+  "nodes": [
+    {
+      "id": "generate",
+      "name": "Generate Reference Views",
+      "inputs": ["image"],
+      "output": "image",
+      "hf_repo": "huanngzh/mv-adapter",
+      "download_check": "mvadapter_i2mv_sdxl.safetensors",
+      "hf_include_prefixes": ["mvadapter_i2mv_sdxl.safetensors"],
+      "params_schema": [
+        {
+          "id": "num_inference_steps",
+          "label": "Denoising Steps",
+          "type": "select",
+          "default": 50,
+          "options": [
+            { "value": 25, "label": "25 (Fast)" },
+            { "value": 50, "label": "50 (Balanced)" },
+            { "value": 75, "label": "75 (High)" }
+          ],
+          "tooltip": "Number of diffusion denoising steps."
+        },
+        {
+          "id": "guidance_scale",
+          "label": "Guidance Scale",
+          "type": "select",
+          "default": 3.0,
+          "options": [
+            { "value": 2.0, "label": "2.0 (Low)" },
+            { "value": 3.0, "label": "3.0 (Balanced)" },
+            { "value": 5.0, "label": "5.0 (High)" }
+          ],
+          "tooltip": "Classifier-free guidance scale."
+        },
+        {
+          "id": "remove_bg",
+          "label": "Remove Background",
+          "type": "select",
+          "default": true,
+          "options": [
+            { "value": true, "label": "Yes" },
+            { "value": false, "label": "No" }
+          ],
+          "tooltip": "Remove background from the reference image before generating views."
+        }
+      ]
+    }
+  ]
+}
