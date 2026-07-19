@@ -100,8 +100,8 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
     if model_dir:
         import glob as _glob
         _cand_base = (
-            Path(model_dir) / "stable-diffusion-xl-base-1.0",
-            Path(model_dir).parent / "sdxl-base" / "stable-diffusion-xl-base-1.0",
+            Path(model_dir),
+            Path(model_dir).parent / "sdxl-base",
         )
         for c in _cand_base:
             if (c / "model_index.json").exists():
@@ -129,7 +129,7 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
     # Load pipeline
     print(json.dumps({"type": "log", "message": f"Loading SDXL base from: {local_base}"}), flush=True)
     pipe = MVAdapterI2MVSDXLPipeline.from_pretrained(
-        local_base, torch_dtype=torch.float16,
+        local_base, torch_dtype=torch.float16, variant="fp16",
     )
     pipe.init_custom_adapter(num_views=6)
 
@@ -231,7 +231,7 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
     for i, (name, img) in enumerate(zip(names, images)):
         img.save(os.path.join(output_dir, f"{name}.png"))
 
-    grid = make_image_grid(images, rows=1)
+    grid = make_image_grid(images, rows=3)
     grid.save(os.path.join(output_dir, "grid.png"))
 
     print(json.dumps({"type": "log", "message": f"Saved 6 views to {output_dir}"}), flush=True)

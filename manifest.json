@@ -90,18 +90,29 @@
     {
       "id": "sdxl-base",
       "name": "SDXL Base Model",
-	"input": "",
-      "inputs": [
-        ""
-      ],
-      "output": "",
       "hf_repo": "stabilityai/stable-diffusion-xl-base-1.0",
-      "download_check": "stable-diffusion-xl-base-1.0/model_index.json",
+      "download_check": "model_index.json",
+      "hf_include_prefixes": [
+        "model_index.json",
+        "scheduler/",
+        "tokenizer/",
+        "tokenizer_2/",
+        "text_encoder/config.json",
+        "text_encoder/model.fp16.safetensors",
+        "text_encoder_2/config.json",
+        "text_encoder_2/model.fp16.safetensors",
+        "unet/config.json",
+        "unet/diffusion_pytorch_model.fp16.safetensors",
+        "vae/config.json",
+        "vae/diffusion_pytorch_model.fp16.safetensors"
+      ],
       "hf_skip_prefixes": [
         "*.md",
         "LICENSE",
         "NOTICE",
-        ".gitattributes"
+        ".gitattributes",
+        "*.png",
+        "sd_xl_base_1.0"
       ],
       "params_schema": []
     }

@@ -42,8 +42,8 @@ class MVAdapterGenerator(BaseGenerator):
     def is_downloaded(self) -> bool:
         check = self.download_check
         has_adapter = (self.model_dir / check).exists() if check else False
-        sdxl_base = self.model_dir / "stable-diffusion-xl-base-1.0" / "model_index.json"
-        sdxl_alt = self.model_dir.parent / "sdxl-base" / "stable-diffusion-xl-base-1.0" / "model_index.json"
+        sdxl_base = self.model_dir / "model_index.json"
+        sdxl_alt = self.model_dir.parent / "sdxl-base" / "model_index.json"
         has_base = sdxl_base.exists() or sdxl_alt.exists()
         return has_adapter and has_base
 
