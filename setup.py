@@ -181,6 +181,11 @@ def setup(
     else:
         print(f"[setup] SDXL base model already present at {sdxl_dir}")
 
+    # Clean up the cloned MV-Adapter source repo (not needed after install).
+    repo_dir = ext_dir / "MV-Adapter"
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir)
+
     print("[setup] Done. Venv ready at:", venv)
 
 
