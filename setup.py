@@ -106,13 +106,57 @@ def setup(
         "rembg",
     )
 
-    # ---- mvadapter (with its own pinned deps) ----
-    print("[setup] Installing mvadapter ...")
-    try:
-        pip(venv, "install", "--no-deps", "mvadapter")
-    except subprocess.CalledProcessError:
-        print("[setup] WARNING: mvadapter installation failed. Check your internet connection.")
-        print("[setup] MV-Adapter requires mvadapter package to function.")
+    # ---- Extra deps required by the mvadapter package ----
+    print("[setup] Installing mvadapter runtime dependencies ...")
+    pip(venv, "install", "--no-deps",
+        "peft", "accelerate", "controlnet_aux", "kornia", "kornia-rs",
+        "opencv-python", "omegaconf", "antlr4-python3-runtime==4.9.3",
+        "timm",
+    )
+
+    # ---- mvadapter (install from GitHub source; not on PyPI) ----
+    # The upstream setup.py reads README.md with the default (non-UTF-8) codec
+    # and fails to build on some systems, so we copy the package tree directly
+    # into site-packages instead of `pip install`-ing the repo.
+    import shutil
+    print("[setup] Installing mvadapter from GitHub source ...")
+    repo_dir = ext_dir / "MV-Adapter"
+    if not (repo_dir / "mvadapter" / "__init__.py").exists():
+        if repo_dir.exists():
+            shutil.rmtree(repo_dir)
+        subprocess.run([
+            "git", "clone", "--depth", "1",
+            "https://github.com/huanngzh/MV-Adapter.git", str(repo_dir),
+        ], check=True)
+    site_pkgs = venv / ("Lib/site-packages" if is_win else "lib/python*/site-packages")
+    if is_win:
+        dest = venv / "Lib" / "site-packages" / "mvadapter"
+    else:
+        import glob as _glob
+        sp = _glob.glob(str(venv / "lib" / "python*" / "site-packages"))[0]
+        dest = Path(sp) / "mvadapter"
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(repo_dir / "mvadapter", dest)
+    print("[setup] mvadapter copied to", dest)
+
+    # The upstream package eagerly imports nvdiffrast (a CUDA-extension that
+    # requires a compiler to build) from mvadapter.utils.__init__. We only use
+    # the i2mv pipelines (no mesh/texture), so make that import lazy. This also
+    # keeps the package importable on systems without a C++ toolchain.
+    utils_init = dest / "__init__.py"
+    if utils_init.exists():
+        src = utils_init.read_text(encoding="utf-8")
+        patched = src.replace(
+            "from .mesh_utils.camera import get_camera, get_orthogonal_camera\n",
+            "def get_camera(*a, **k):\n"
+            "    from .mesh_utils.camera import get_camera as _g\n"
+            "    return _g(*a, **k)\n"
+            "def get_orthogonal_camera(*a, **k):\n"
+            "    from .mesh_utils.camera import get_orthogonal_camera as _g\n"
+            "    return _g(*a, **k)\n",
+        )
+        utils_init.write_text(patched, encoding="utf-8")
 
     # ---- Download SDXL base model ----
     if model_dir:
@@ -125,7 +169,7 @@ def setup(
                 "snapshot_download("
                 "repo_id='stabilityai/stable-diffusion-xl-base-1.0', "
                 "local_dir=sys.argv[1], "
-                "ignore_patterns=['*.md', 'LICENSE', 'NOTICE', '.gitattributes', '*.txt'], "
+                "ignore_patterns=['*.md', 'LICENSE', 'NOTICE', '.gitattributes'], "
                 "local_dir_use_symlinks=False)",
                 str(sdxl_dir),
             ], check=True)

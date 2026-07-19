@@ -53,13 +53,26 @@ class MVAdapterGenerator(BaseGenerator):
 
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
+        # 1) MV-Adapter i2mv adapter weight (from the manifest hf_repo)
+        if not (self.model_dir / self.download_check).exists():
+            print(f"[mv-adapter] Downloading adapter {self.hf_repo} ...")
+            snapshot_download(
+                repo_id=self.hf_repo,
+                local_dir=str(self.model_dir),
+                ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes"],
+            )
+            print("[mv-adapter] Adapter downloaded.")
+        else:
+            print("[mv-adapter] Adapter already present.")
+
+        # 2) SDXL base model (required by the i2mv pipeline)
         sdxl_dir = self.model_dir / "stable-diffusion-xl-base-1.0"
         if not (sdxl_dir / "model_index.json").exists():
             print("[mv-adapter] Downloading SDXL base model (~7 GB) ...")
             snapshot_download(
                 repo_id="stabilityai/stable-diffusion-xl-base-1.0",
                 local_dir=str(sdxl_dir),
-                ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes", "*.txt"],
+                ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes"],
                 local_dir_use_symlinks=False,
             )
             print("[mv-adapter] SDXL base model downloaded.")
