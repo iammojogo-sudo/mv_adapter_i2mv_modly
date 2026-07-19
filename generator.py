@@ -37,6 +37,10 @@ class MVAdapterGenerator(BaseGenerator):
                 "MV-Adapter venv not found at " + str(self._venv_python) +
                 ". Run setup.py first."
             )
+        # Download SDXL base model if missing (one-time).
+        # MV-Adapter needs files from two HF repos; the manifest handles the
+        # adapter, and we fetch the SDXL base during load (see registry.py:248).
+        self._download_weights()
 
     def is_downloaded(self) -> bool:
         check = self.download_check
