@@ -23,14 +23,14 @@ from pathlib import Path
 
 
 def pip(venv: Path, *args: str) -> None:
+    is_win = platform.system() == "Windows"
+    pip_exe = venv / ("Scripts/pip.exe" if is_win else "bin/pip")
+    subprocess.run([str(pip_exe), *args], check=True)
 
 
 def venv_python(venv: Path) -> Path:
     is_win = platform.system() == "Windows"
     return venv / ("Scripts/python.exe" if is_win else "bin/python")
-    is_win = platform.system() == "Windows"
-    pip_exe = venv / ("Scripts/pip.exe" if is_win else "bin/pip")
-    subprocess.run([str(pip_exe), *args], check=True)
 
 
 def setup(

@@ -2,7 +2,7 @@
   "id": "mv-adapter",
   "name": "MV-Adapter (Multiview)",
   "type": "model",
-  "source": "https://github.com/iammojogo-sudo/hunyuan3d-2mv_modly",
+  "source": "https://github.com/iammojogo-sudo/mv_adapter_i2mv_modly",
   "description": "Generates 6 orthographic reference views from a single input image using MV-Adapter I2MV-SDXL at 768x768. Outputs front/right/back/left/top/bottom views plus a 1x6 grid to feed the Texture Mesh node.",
   "version": "1.0.0",
   "author": "iammojogo",
