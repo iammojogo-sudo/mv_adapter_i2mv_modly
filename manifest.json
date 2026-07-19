@@ -90,7 +90,10 @@
     {
       "id": "sdxl-base",
       "name": "SDXL Base Model",
-      "inputs": [],
+	"input": "",
+      "inputs": [
+        ""
+      ],
       "output": "",
       "hf_repo": "stabilityai/stable-diffusion-xl-base-1.0",
       "download_check": "stable-diffusion-xl-base-1.0/model_index.json",

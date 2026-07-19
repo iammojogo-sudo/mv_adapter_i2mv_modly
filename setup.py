@@ -163,9 +163,11 @@ def setup(
         utils_init.write_text(patched, encoding="utf-8")
 
     # Clean up the cloned MV-Adapter source repo (not needed after install).
+    # Windows Defender / anti-virus may hold a lock on .git/pack files, so
+    # ignore errors — the clone is .gitignored anyway.
     repo_dir = ext_dir / "MV-Adapter"
     if repo_dir.exists():
-        shutil.rmtree(repo_dir)
+        shutil.rmtree(repo_dir, ignore_errors=True)
 
     print("[setup] Done. Venv ready at:", venv)
 
