@@ -162,25 +162,6 @@ def setup(
         )
         utils_init.write_text(patched, encoding="utf-8")
 
-    # ---- Download SDXL base model ----
-    if model_dir:
-        sdxl_dir = Path(model_dir) / "stable-diffusion-xl-base-1.0"
-        if not (sdxl_dir / "model_index.json").exists():
-            print("[setup] Downloading SDXL base model (~7 GB) ...")
-            subprocess.run([
-                str(venv_python(venv)), "-c",
-                "from huggingface_hub import snapshot_download; import sys; "
-                "snapshot_download("
-                "repo_id='stabilityai/stable-diffusion-xl-base-1.0', "
-                "local_dir=sys.argv[1], "
-                "ignore_patterns=['*.md', 'LICENSE', 'NOTICE', '.gitattributes'], "
-                "local_dir_use_symlinks=False)",
-                str(sdxl_dir),
-            ], check=True)
-            print(f"[setup] SDXL base model downloaded to {sdxl_dir}")
-        else:
-            print(f"[setup] SDXL base model already present at {sdxl_dir}")
-
     print("[setup] Done. Venv ready at:", venv)
 
 
