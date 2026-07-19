@@ -22,6 +22,22 @@ def _venv_python() -> Path:
 HY_BRIDGE = EXT_DIR / "bridge.py"
 
 
+def _make_progress_tqdm(progress_cb):
+    """Returns a tqdm subclass that pipes progress to the Modly UI."""
+    from tqdm import tqdm
+    class _ProgressTqdm(tqdm):
+        def __init__(self, *args, **kwargs):
+            self._dl_completed = 0
+            self._dl_total = kwargs.get("total", 1) or 1
+            super().__init__(*args, **kwargs)
+        def update(self, n=1):
+            self._dl_completed += n
+            super().update(n)
+            pct = min(2 + int(13 * self._dl_completed / self._dl_total), 15)
+            progress_cb(pct, f"Downloading SDXL ({self._dl_completed}/{self._dl_total} files)...")
+    return _ProgressTqdm
+
+
 class MVAdapterGenerator(BaseGenerator):
     MODEL_ID = "mv-adapter"
     DISPLAY_NAME = "MV-Adapter (Multiview)"
@@ -50,14 +66,17 @@ class MVAdapterGenerator(BaseGenerator):
     def _auto_download(self) -> None:
         self._download_weights()
 
-    def _download_weights(self) -> None:
+    def _download_weights(self, progress_cb=None) -> None:
         from huggingface_hub import snapshot_download
+        from tqdm import tqdm
 
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
         # 1) MV-Adapter i2mv adapter weight (from the manifest hf_repo)
         if not (self.model_dir / self.download_check).exists():
             print(f"[mv-adapter] Downloading adapter {self.hf_repo} ...")
+            if progress_cb:
+                progress_cb(2, "Installing adapter...")
             snapshot_download(
                 repo_id=self.hf_repo,
                 local_dir=str(self.model_dir),
@@ -71,12 +90,19 @@ class MVAdapterGenerator(BaseGenerator):
         sdxl_dir = self.model_dir / "stable-diffusion-xl-base-1.0"
         if not (sdxl_dir / "model_index.json").exists():
             print("[mv-adapter] Downloading SDXL base model (~7 GB) ...")
-            snapshot_download(
-                repo_id="stabilityai/stable-diffusion-xl-base-1.0",
-                local_dir=str(sdxl_dir),
-                ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes"],
-                local_dir_use_symlinks=False,
-            )
+            if progress_cb:
+                progress_cb(2, "Installing SDXL base model (~7 GB, first run only)...")
+
+            def _sdxl_download():
+                return snapshot_download(
+                    repo_id="stabilityai/stable-diffusion-xl-base-1.0",
+                    local_dir=str(sdxl_dir),
+                    ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes"],
+                    local_dir_use_symlinks=False,
+                    tqdm_class=_make_progress_tqdm(progress_cb) if progress_cb else None,
+                )
+
+            _sdxl_download()
             print("[mv-adapter] SDXL base model downloaded.")
         else:
             print("[mv-adapter] SDXL base model already present.")
@@ -138,7 +164,7 @@ class MVAdapterGenerator(BaseGenerator):
         if not (sdxl_dir / "model_index.json").exists():
             if progress_cb:
                 progress_cb(2, "Installing SDXL base model (~7 GB, first run only)...")
-            self._download_weights()
+            self._download_weights(progress_cb=progress_cb)
 
         run = self._output_dir(params)
         output_dir = run / "views"
