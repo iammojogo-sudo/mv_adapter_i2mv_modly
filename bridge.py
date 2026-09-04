@@ -2,8 +2,11 @@
 
 i2mv mode: MV-Adapter-I2MV-SD2.1 at 512x512, Plucker camera embeddings.
 The SD2.1 variant is the low-VRAM build recommended for <6GB GPUs.
-Generates 6 orthographic views [front, right, back, left, top, bottom] and
-saves them with a 1×6 grid to the output directory.
+Generates 6 orthographic views on a horizontal sweep (all elevation 0, the
+i2mv model's trained configuration) and saves them as named direction files
+(front, front-left, left, back, right, front-right) plus a 2×2 grid of the 4
+cardinal views in reading order [front, left, back, right] for the downstream
+mesh generator. i2mv cannot produce real top/bottom views.
 """
 
 import json
@@ -93,10 +96,18 @@ MV_DISTANCE = 1.8
 
 def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
                    text="high quality", remove_bg=True, num_steps=50,
-                   guidance_scale=3.0, seed=-1, model_dir=None):
+                   guidance_scale=3.0, seed=-1, model_dir=None, resolution=None):
     os.makedirs(output_dir, exist_ok=True)
-    resolution = I2MV_RESOLUTION
-    names = ["front", "right", "back", "left", "top", "bottom"]
+    resolution = int(resolution or I2MV_RESOLUTION)
+    # Horizontal sweep (all elevation 0). Direction names follow the MV-Adapter
+    # paper's canonical order for the trained azimuths {0,45,90,180,270,315}:
+    #   front, front-left, left, back, right, front-right.
+    # The official i2mv script shifts those azimuths by -90, which yields the
+    # same direction sequence in output order (verified: view_0 = front, view_3
+    # = back). The 2×2 grid below uses only the 4 cardinal views in reading order
+    # [front, left, back, right], matching the downstream mesh generator.
+    names = ["front", "front-left", "left", "back", "right", "front-right"]
+    GRID_2X2 = [0, 2, 3, 4]  # front, left, back, right
 
     local_base = None
     local_adapter = None
@@ -123,8 +134,16 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
 
     # Generate Plucker camera embeddings
     print(json.dumps({"type": "log", "message": "Generating camera Plucker embeddings"}), flush=True)
+    # i2mv is a HORIZONTAL-SWEEP model: it was trained with all cameras at
+    # elevation 0 and cannot produce real top/bottom views (feeding it ±90° just
+    # yields garbage side views). Use the exact camera config from the official
+    # inference_i2mv_sd.py script so all 6 views are valid and the model performs
+    # as intended. These views feed downstream mesh generation.
     i2mv_elevs = [0, 0, 0, 0, 0, 0]
     i2mv_azims = [x - 90 for x in [0, 45, 90, 180, 270, 315]]
+    print(json.dumps({"type": "log",
+        "message": "i2mv camera sweep (elev=0): " +
+        ", ".join(f"{n}={a}deg" for n, a in zip(names, i2mv_azims))}), flush=True)
     c2w = get_c2w(i2mv_elevs, [MV_DISTANCE] * 6, i2mv_azims, device=device)
     plucker_embeds = get_plucker_embeds_from_cameras_ortho(c2w, [1.1] * 6, resolution)
     control_images = ((plucker_embeds + 1.0) / 2.0).clamp(0, 1).to(device=device)
@@ -249,7 +268,12 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
     for i, (name, img) in enumerate(zip(names, images)):
         img.save(os.path.join(output_dir, f"{name}.png"))
 
-    grid = make_image_grid(images, rows=3)
+    # 2×2 grid of the 4 cardinal views in reading order:
+    #   [front,  left ]
+    #   [back,   right]
+    # This matches the downstream mesh generator's expected layout.
+    grid_images = [images[i] for i in GRID_2X2]
+    grid = make_image_grid(grid_images, rows=2)
     grid.save(os.path.join(output_dir, "grid.png"))
 
     print(json.dumps({"type": "log", "message": f"Saved 6 views to {output_dir}"}), flush=True)
@@ -268,10 +292,12 @@ if __name__ == "__main__":
     guidance_scale = args.get("guidance_scale", 3.0)
     seed = args.get("seed", -1)
     model_dir = args.get("model_dir", None)
+    resolution = args.get("resolution", I2MV_RESOLUTION)
 
     try:
         run_mv_adapter(mesh_path, ref_image_path, output_dir, device,
-                       text, remove_bg, num_steps, guidance_scale, seed, model_dir)
+                       text, remove_bg, num_steps, guidance_scale, seed, model_dir,
+                       resolution=resolution)
         print(json.dumps({"type": "done", "output_dir": output_dir}), flush=True)
     except Exception as e:
         print(json.dumps({"type": "error", "message": str(e)}), flush=True)

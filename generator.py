@@ -185,6 +185,7 @@ class MVAdapterGenerator(BaseGenerator):
         num_inference_steps = int(params.get("num_inference_steps", 50))
         guidance_scale = float(params.get("guidance_scale", 3.0))
         remove_bg = params.get("remove_bg", "true") in ("true", "True", True)
+        resolution = int(params.get("resolution", 512))
 
         bridge_args = {
             "mesh_path": mesh_path,
@@ -197,6 +198,7 @@ class MVAdapterGenerator(BaseGenerator):
             "num_inference_steps": num_inference_steps,
             "guidance_scale": guidance_scale,
             "seed": -1,
+            "resolution": resolution,
         }
 
         env = os.environ.copy()

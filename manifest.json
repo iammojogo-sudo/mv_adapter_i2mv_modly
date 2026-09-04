@@ -3,7 +3,7 @@
   "name": "MV-Adapter (Multiview)",
   "type": "model",
   "source": "https://github.com/iammojogo-sudo/mv_adapter_i2mv_modly",
-  "description": "Generates 6 orthographic reference views from a single input image using MV-Adapter I2MV-SD2.1 at 512x512 (the low-VRAM variant, recommended for <6GB GPUs). Outputs front/right/back/left/top/bottom views plus a 1x6 grid to feed the Texture Mesh node.",
+  "description": "Generates 6 orthographic reference views from a single input image using MV-Adapter I2MV-SD2.1 at 512x512 (the low-VRAM variant, recommended for <6GB GPUs). Outputs front, front-left, left, back, right, front-right views plus a 2x2 grid of the 4 cardinal views in reading order [front, left, back, right] to feed the mesh-generation step.",
   "version": "1.1.0",
   "author": "iammojogo",
   "generator_class": "MVAdapterGenerator",
@@ -26,6 +26,23 @@
         "mvadapter_i2mv_sd21.safetensors"
       ],
       "params_schema": [
+        {
+          "id": "resolution",
+          "label": "Resolution",
+          "type": "select",
+          "default": 512,
+          "options": [
+            {
+              "value": 512,
+              "label": "512 (Standard)"
+            },
+            {
+              "value": 384,
+              "label": "384 (Low VRAM / Faster)"
+            }
+          ],
+          "tooltip": "Lower resolution reduces VRAM and speeds up generation."
+        },
         {
           "id": "num_inference_steps",
           "label": "Denoising Steps",
