@@ -1,6 +1,7 @@
 """MV-Adapter bridge for multi-view image generation.
 
-i2mv mode: MV-Adapter-I2MV-SDXL at 768x768, Plucker camera embeddings.
+i2mv mode: MV-Adapter-I2MV-SD2.1 at 512x512, Plucker camera embeddings.
+The SD2.1 variant is the low-VRAM build recommended for <6GB GPUs.
 Generates 6 orthographic views [front, right, back, left, top, bottom] and
 saves them with a 1×6 grid to the output directory.
 """
@@ -16,10 +17,12 @@ import numpy as np
 import torch.nn.functional as F
 from PIL import Image
 
-from mvadapter.pipelines.pipeline_mvadapter_i2mv_sdxl import (
-    MVAdapterI2MVSDXLPipeline,
+from mvadapter.pipelines.pipeline_mvadapter_i2mv_sd import (
+    MVAdapterI2MVSDPipeline,
 )
+from mvadapter.schedulers.scheduling_shift_snr import ShiftSNRScheduler
 from mvadapter.utils.geometry import get_plucker_embeds_from_cameras_ortho
+from diffusers import DDPMScheduler
 
 
 # ── Camera math ─────────────────────────────────────────────────────────
@@ -84,7 +87,7 @@ def tensor_to_pil(data, batched=False):
 
 # ── MV-Adapter camera config ───────────────────────────────────────────
 
-I2MV_RESOLUTION = 768
+I2MV_RESOLUTION = 512
 MV_DISTANCE = 1.8
 
 
@@ -101,20 +104,20 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
         import glob as _glob
         _cand_base = (
             Path(model_dir),
-            Path(model_dir).parent / "sdxl-base",
+            Path(model_dir).parent / "sd21-base",
         )
         for c in _cand_base:
             if (c / "model_index.json").exists():
                 local_base = str(c)
                 break
         _cand_adapter = _glob.glob(
-            str(Path(model_dir) / "**" / "mvadapter_i2mv_sdxl.safetensors"), recursive=True)
+            str(Path(model_dir) / "**" / "mvadapter_i2mv_sd21.safetensors"), recursive=True)
         if _cand_adapter:
             local_adapter = _cand_adapter[0]
 
     if not local_base:
         raise RuntimeError(
-            "SDXL base model not found. Please install weights via the Modly extension panel "
+            "SD 2.1 base model not found. Please install weights via the Modly extension panel "
             "(mv-adapter node) before generating."
         )
 
@@ -127,9 +130,17 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
     control_images = ((plucker_embeds + 1.0) / 2.0).clamp(0, 1).to(device=device)
 
     # Load pipeline
-    print(json.dumps({"type": "log", "message": f"Loading SDXL base from: {local_base}"}), flush=True)
-    pipe = MVAdapterI2MVSDXLPipeline.from_pretrained(
+    print(json.dumps({"type": "log", "message": f"Loading SD 2.1 base from: {local_base}"}), flush=True)
+    pipe = MVAdapterI2MVSDPipeline.from_pretrained(
         local_base, torch_dtype=torch.float16, variant="fp16",
+    )
+    # The authors find DDPMScheduler wrapped with a shift-SNR schedule works
+    # best for the SD2.1-based adapters.
+    pipe.scheduler = ShiftSNRScheduler.from_scheduler(
+        pipe.scheduler,
+        shift_mode="interpolated",
+        shift_scale=8.0,
+        scheduler_class=DDPMScheduler,
     )
     pipe.init_custom_adapter(num_views=6)
 
@@ -143,13 +154,19 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
         print(json.dumps({"type": "log", "message": "Loading adapter from HuggingFace"}), flush=True)
         pipe.load_custom_adapter(
             "huanngzh/mv-adapter",
-            weight_name="mvadapter_i2mv_sdxl.safetensors",
+            weight_name="mvadapter_i2mv_sd21.safetensors",
         )
+    # Note: the MV/ref attention weights and cond_encoder are created in fp32 by
+    # init_custom_adapter, so we cast the whole pipeline to fp16 on the device.
+    # We deliberately do NOT use enable_model_cpu_offload() — it is incompatible
+    # with this pipeline's reference-hidden-states caching (accelerate hooks break
+    # cache_hidden_states across the ref/denoise passes) and it would not cast the
+    # adapter weights. The SD2.1 variant is small enough to run fully on-device
+    # (officially recommended for <6GB GPUs). Also do NOT call
+    # enable_attention_slicing(): that would replace the custom
+    # DecoupledMVRowSelfAttnProcessor processors.
     pipe.to(device=device, dtype=torch.float16)
     pipe.cond_encoder.to(device=device, dtype=torch.float16)
-    pipe.enable_vae_slicing()
-    pipe.enable_vae_tiling()
-    pipe.enable_attention_slicing()
 
     # Load reference image
     print(json.dumps({"type": "log", "message": "Preparing reference image"}), flush=True)
@@ -161,13 +178,14 @@ def run_mv_adapter(mesh_path, ref_image_path, output_dir, device="cuda",
 
     if remove_bg:
         try:
+            import onnxruntime  # noqa: F401  (rembg needs this; skip if missing)
             from rembg import remove as rembg_remove
             ref_img = rembg_remove(ref_img, post_process=True)
             ref_img = ref_img.convert("RGBA")
             bg = Image.new("RGBA", ref_img.size, (128, 128, 128, 255))
             ref_img = Image.alpha_composite(bg, ref_img).convert("RGB")
-        except Exception as e:
-            print(json.dumps({"type": "log", "message": f"rembg failed: {e}"}), flush=True)
+        except BaseException as e:  # rembg may sys.exit(); never abort generation over bg removal
+            print(json.dumps({"type": "log", "message": f"rembg unavailable ({e}); generating without background removal"}), flush=True)
 
     ref_np = np.array(ref_img)
     alpha = np.ones(ref_np.shape[:2], dtype=bool)

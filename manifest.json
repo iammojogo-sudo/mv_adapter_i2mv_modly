@@ -3,8 +3,8 @@
   "name": "MV-Adapter (Multiview)",
   "type": "model",
   "source": "https://github.com/iammojogo-sudo/mv_adapter_i2mv_modly",
-  "description": "Generates 6 orthographic reference views from a single input image using MV-Adapter I2MV-SDXL at 768x768. Outputs front/right/back/left/top/bottom views plus a 1x6 grid to feed the Texture Mesh node.",
-  "version": "1.0.0",
+  "description": "Generates 6 orthographic reference views from a single input image using MV-Adapter I2MV-SD2.1 at 512x512 (the low-VRAM variant, recommended for <6GB GPUs). Outputs front/right/back/left/top/bottom views plus a 1x6 grid to feed the Texture Mesh node.",
+  "version": "1.1.0",
   "author": "iammojogo",
   "generator_class": "MVAdapterGenerator",
   "tags": [
@@ -21,9 +21,9 @@
       ],
       "output": "image",
       "hf_repo": "huanngzh/mv-adapter",
-      "download_check": "mvadapter_i2mv_sdxl.safetensors",
+      "download_check": "mvadapter_i2mv_sd21.safetensors",
       "hf_include_prefixes": [
-        "mvadapter_i2mv_sdxl.safetensors"
+        "mvadapter_i2mv_sd21.safetensors"
       ],
       "params_schema": [
         {
@@ -86,35 +86,6 @@
           "tooltip": "Remove background from the reference image before generating views."
         }
       ]
-    },
-    {
-      "id": "sdxl-base",
-      "name": "SDXL Base Model",
-      "hf_repo": "stabilityai/stable-diffusion-xl-base-1.0",
-      "download_check": "model_index.json",
-      "hf_include_prefixes": [
-        "model_index.json",
-        "scheduler/",
-        "tokenizer/",
-        "tokenizer_2/",
-        "text_encoder/config.json",
-        "text_encoder/model.fp16.safetensors",
-        "text_encoder_2/config.json",
-        "text_encoder_2/model.fp16.safetensors",
-        "unet/config.json",
-        "unet/diffusion_pytorch_model.fp16.safetensors",
-        "vae/config.json",
-        "vae/diffusion_pytorch_model.fp16.safetensors"
-      ],
-      "hf_skip_prefixes": [
-        "*.md",
-        "LICENSE",
-        "NOTICE",
-        ".gitattributes",
-        "*.png",
-        "sd_xl_base_1.0"
-      ],
-      "params_schema": []
     }
   ]
 }

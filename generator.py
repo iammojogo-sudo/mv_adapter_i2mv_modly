@@ -21,6 +21,21 @@ def _venv_python() -> Path:
 
 HY_BRIDGE = EXT_DIR / "bridge.py"
 
+# SD 2.1 base model, downloaded by the single "Generate Reference Views" node.
+SD21_BASE_REPO = "Manojb/stable-diffusion-2-1-base"
+SD21_BASE_PREFIXES = [
+    "model_index.json",
+    "scheduler/",
+    "tokenizer/",
+    "text_encoder/config.json",
+    "text_encoder/model.fp16.safetensors",
+    "unet/config.json",
+    "unet/diffusion_pytorch_model.fp16.safetensors",
+    "vae/config.json",
+    "vae/diffusion_pytorch_model.fp16.safetensors",
+    "feature_extractor/preprocessor_config.json",
+]
+
 
 class MVAdapterGenerator(BaseGenerator):
     MODEL_ID = "mv-adapter"
@@ -42,9 +57,9 @@ class MVAdapterGenerator(BaseGenerator):
     def is_downloaded(self) -> bool:
         check = self.download_check
         has_adapter = (self.model_dir / check).exists() if check else False
-        sdxl_base = self.model_dir / "model_index.json"
-        sdxl_alt = self.model_dir.parent / "sdxl-base" / "model_index.json"
-        has_base = sdxl_base.exists() or sdxl_alt.exists()
+        sd21_base = self.model_dir / "model_index.json"
+        sd21_alt = self.model_dir.parent / "sd21-base" / "model_index.json"
+        has_base = sd21_base.exists() or sd21_alt.exists()
         return has_adapter and has_base
 
     def _auto_download(self) -> None:
@@ -56,17 +71,38 @@ class MVAdapterGenerator(BaseGenerator):
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
         # MV-Adapter i2mv adapter weight (from the manifest hf_repo).
-        # SDXL base model is downloaded via the "SDXL Base Model" node button.
         if not (self.model_dir / self.download_check).exists():
             print(f"[mv-adapter] Downloading adapter {self.hf_repo} ...")
+            allow = list(self.hf_include_prefixes) or None
             snapshot_download(
                 repo_id=self.hf_repo,
                 local_dir=str(self.model_dir),
+                allow_patterns=allow,
                 ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes"],
             )
             print("[mv-adapter] Adapter downloaded.")
         else:
             print("[mv-adapter] Adapter already present.")
+
+        # SD 2.1 base model — downloaded alongside the adapter so the extension
+        # only exposes a single "Generate Reference Views" node.
+        base_dir = self.model_dir.parent / "sd21-base"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        if not (base_dir / "model_index.json").exists():
+            print(f"[mv-adapter] Downloading SD2.1 base {SD21_BASE_REPO} ...")
+            snapshot_download(
+                repo_id=SD21_BASE_REPO,
+                local_dir=str(base_dir),
+                allow_patterns=SD21_BASE_PREFIXES,
+                ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes",
+                                 "*.bin", "*.ckpt", "*.png", "pytorch_model*",
+                                 "diffusion_pytorch_model.bin",
+                                 "diffusion_pytorch_model.non_ema*", "v1-5-pruned*",
+                                 "safety_checker/"],
+            )
+            print("[mv-adapter] SD2.1 base downloaded.")
+        else:
+            print("[mv-adapter] SD2.1 base already present.")
 
     def unload(self) -> None:
         self._venv_python = None

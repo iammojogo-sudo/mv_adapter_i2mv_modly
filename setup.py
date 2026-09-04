@@ -104,6 +104,7 @@ def setup(
         "typeguard",
         "trimesh",
         "rembg",
+        "onnxruntime",
     )
 
     # ---- Extra deps required by the mvadapter package ----
