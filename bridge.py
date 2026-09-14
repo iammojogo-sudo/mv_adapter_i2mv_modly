@@ -106,7 +106,9 @@ def _subject_mask(arr, tol=None):
     border = np.concatenate([a[0, :], a[-1, :], a[:, 0], a[:, -1]], axis=0)
     med = np.median(border, axis=0)
     p90 = float(np.percentile(np.abs(border - med).max(axis=1), 90))
-    T = float(tol) if tol else max(18.0, min(60.0, 1.5 * p90 + 10.0))
+    # Wider than the border's own spread: a radial vignette is darkest at the
+    # corners (on the border) and brightest at the centre (never sampled).
+    T = float(tol) if tol else max(30.0, min(90.0, 3.0 * p90 + 20.0))
     dist = np.abs(a - med).max(axis=2)
     bg = (dist < T).astype(np.uint8)
     _n, lab = cv2.connectedComponents(bg)
