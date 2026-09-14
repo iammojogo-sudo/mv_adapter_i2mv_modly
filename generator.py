@@ -1,0 +1,287 @@
+import json
+import os
+import platform
+import re
+import subprocess
+import sys
+import threading
+from pathlib import Path
+from typing import Callable, Optional
+
+from services.generators.base import BaseGenerator
+
+
+EXT_DIR = Path(__file__).resolve().parent
+
+
+def _venv_python() -> Path:
+    is_win = platform.system() == "Windows"
+    return EXT_DIR / "venv" / ("Scripts/python.exe" if is_win else "bin/python")
+
+
+HY_BRIDGE = EXT_DIR / "bridge.py"
+
+# SD 2.1 base model, downloaded by the single "Generate Reference Views" node.
+SD21_BASE_REPO = "Manojb/stable-diffusion-2-1-base"
+SD21_BASE_PREFIXES = [
+    "model_index.json",
+    "scheduler/",
+    "tokenizer/",
+    "text_encoder/config.json",
+    "text_encoder/model.fp16.safetensors",
+    "unet/config.json",
+    "unet/diffusion_pytorch_model.fp16.safetensors",
+    "vae/config.json",
+    "vae/diffusion_pytorch_model.fp16.safetensors",
+    "feature_extractor/preprocessor_config.json",
+]
+
+
+class MVAdapterGenerator(BaseGenerator):
+    MODEL_ID = "mv-adapter"
+    DISPLAY_NAME = "MV-Adapter (Multiview)"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._venv_python = None
+
+    def load(self) -> None:
+        self._venv_python = _venv_python()
+        if not self._venv_python.exists():
+            raise RuntimeError(
+                "MV-Adapter venv not found at " + str(self._venv_python) +
+                ". Run setup.py first."
+            )
+
+
+    def is_downloaded(self) -> bool:
+        check = self.download_check
+        has_adapter = (self.model_dir / check).exists() if check else False
+        sd21_base = self.model_dir / "model_index.json"
+        sd21_alt = self.model_dir.parent / "sd21-base" / "model_index.json"
+        has_base = sd21_base.exists() or sd21_alt.exists()
+        return has_adapter and has_base
+
+    def _auto_download(self) -> None:
+        self._download_weights()
+
+    def _download_weights(self) -> None:
+        from huggingface_hub import snapshot_download
+
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+
+        # MV-Adapter i2mv adapter weight (from the manifest hf_repo).
+        if not (self.model_dir / self.download_check).exists():
+            print(f"[mv-adapter] Downloading adapter {self.hf_repo} ...")
+            allow = list(self.hf_include_prefixes) or None
+            snapshot_download(
+                repo_id=self.hf_repo,
+                local_dir=str(self.model_dir),
+                allow_patterns=allow,
+                ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes"],
+            )
+            print("[mv-adapter] Adapter downloaded.")
+        else:
+            print("[mv-adapter] Adapter already present.")
+
+        # SD 2.1 base model — downloaded alongside the adapter so the extension
+        # only exposes a single "Generate Reference Views" node.
+        base_dir = self.model_dir.parent / "sd21-base"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        if not (base_dir / "model_index.json").exists():
+            print(f"[mv-adapter] Downloading SD2.1 base {SD21_BASE_REPO} ...")
+            snapshot_download(
+                repo_id=SD21_BASE_REPO,
+                local_dir=str(base_dir),
+                allow_patterns=SD21_BASE_PREFIXES,
+                ignore_patterns=["*.md", "LICENSE", "NOTICE", ".gitattributes",
+                                 "*.bin", "*.ckpt", "*.png", "pytorch_model*",
+                                 "diffusion_pytorch_model.bin",
+                                 "diffusion_pytorch_model.non_ema*", "v1-5-pruned*",
+                                 "safety_checker/"],
+            )
+            print("[mv-adapter] SD2.1 base downloaded.")
+        else:
+            print("[mv-adapter] SD2.1 base already present.")
+
+    def unload(self) -> None:
+        self._venv_python = None
+
+    def _resolve_mesh_path(self, rel: Path) -> str:
+        """Resolve a mesh path that Modly sends relative to the workspace root.
+
+        The Load 3D Mesh / workflow runner sends mesh_path as
+        <workspaceDir>/Workflows/run_…/mesh.glb with the workspace prefix
+        stripped, while our outputs_dir is <workspaceDir>/Workflows — so a
+        naive join double-counts 'Workflows'. Walk up ancestors and strip any
+        overlapping leading segments to locate the real file.
+        """
+        rel = Path(rel)
+        if rel.is_absolute() and rel.exists():
+            return str(rel)
+
+        roots: list = []
+        for start in (Path(self.outputs_dir).resolve(),
+                      Path(self.model_dir).resolve(),
+                      Path.cwd().resolve()):
+            node = start
+            for _ in range(6):
+                if node not in roots:
+                    roots.append(node)
+                if node.parent == node:
+                    break
+                node = node.parent
+
+        parts = rel.parts
+        for root in roots:
+            cand = root / rel
+            if cand.exists():
+                return str(cand)
+            # strip overlapping leading segments (e.g. root ends in 'Workflows'
+            # and rel starts with 'Workflows')
+            for i in range(len(parts)):
+                cand = root / Path(*parts[i:])
+                if cand.exists():
+                    return str(cand)
+        # Fallback: best guess
+        return str((Path(self.outputs_dir).resolve() / rel).resolve())
+
+    def generate(
+        self,
+        image_bytes: bytes,
+        params: dict,
+        progress_cb: Optional[Callable[[int, str], None]] = None,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Path:
+        if self._venv_python is None:
+            self.load()
+
+        run = self._output_dir(params)
+        output_dir = run / "views"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        grid_path = output_dir / "grid.png"
+
+        # Load 3D Mesh node outputs its absolute path in params.filePath.
+        # Fall back to mesh_path (used when the mesh comes from another node's
+        # output, which Modly sends relative to the workspace).
+        # Mesh is OPTIONAL: if not wired, the bridge falls back to plain
+        # image-to-multiview (Plucker embeddings) instead of geometry guidance.
+        mesh_path_raw = params.get("filePath") or params.get("mesh_path") or ""
+        if mesh_path_raw:
+            mesh_path = self._resolve_mesh_path(Path(mesh_path_raw))
+        elif image_bytes and image_bytes[:4] == b"glTF":
+            # Fallback: maybe the mesh was passed as GLB bytes
+            mesh_path = str(output_dir / "input_mesh.glb")
+            with open(mesh_path, "wb") as f:
+                f.write(image_bytes)
+        else:
+            mesh_path = ""
+
+        ref_path = str(output_dir / "input_ref.png")
+        from PIL import Image as _PIL
+        import io as _io
+        _PIL.open(_io.BytesIO(image_bytes)).save(ref_path)
+
+        num_inference_steps = int(params.get("num_inference_steps", 50))
+        guidance_scale = float(params.get("guidance_scale", 3.0))
+        remove_bg = params.get("remove_bg", "true") in ("true", "True", True)
+        resolution = int(params.get("resolution", 512))
+        use_reference_front = params.get("use_reference_front", "true") in ("true", "True", True)
+        normalize_views = params.get("normalize_views", "true") in ("true", "True", True)
+
+        bridge_args = {
+            "mesh_path": mesh_path,
+            "ref_image_path": ref_path,
+            "output_dir": str(output_dir),
+            "model_dir": str(self.model_dir),
+            "device": "cuda",
+            "text": "high quality",
+            "remove_bg": remove_bg,
+            "num_inference_steps": num_inference_steps,
+            "guidance_scale": guidance_scale,
+            "seed": -1,
+            "resolution": resolution,
+            "use_reference_front": use_reference_front,
+            "normalize_views": normalize_views,
+        }
+
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+
+        if progress_cb:
+            if mesh_path:
+                progress_cb(10, "Rendering mesh position/normal maps…")
+            else:
+                progress_cb(10, "Preparing camera embeddings for i2mv…")
+
+        _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+        captured = []
+
+        def _pump(pipe, cb, sink):
+            for raw in pipe:
+                line = raw.strip()
+                if line:
+                    sink.append(line)
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    if line and line[0] in "{[":
+                        continue
+                    text = _ANSI_RE.sub("", line).replace("\r", "").strip()
+                    if text:
+                        print(f"[{self.MODEL_ID}] {text}", file=sys.stderr, flush=True)
+                    continue
+                t = msg.get("type")
+                if t == "progress" and cb:
+                    cb(msg.get("pct", 0), msg.get("step", ""))
+                elif t == "log":
+                    text = _ANSI_RE.sub("", msg.get("message", "")).strip()
+                    if text:
+                        print(f"[{self.MODEL_ID}] {text}", file=sys.stderr, flush=True)
+
+        proc = subprocess.Popen(
+            [str(self._venv_python), str(HY_BRIDGE), json.dumps(bridge_args)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,
+        )
+        reader = threading.Thread(
+            target=_pump, args=(proc.stdout, progress_cb, captured), daemon=True
+        )
+        reader.start()
+
+        try:
+            proc.wait(timeout=3600)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise RuntimeError("MV-Adapter timed out after 1 hour.")
+
+        reader.join()
+        full_out = "\n".join(captured)
+        print(f"[{self.MODEL_ID}] Subprocess exit code: {proc.returncode}", file=sys.stderr, flush=True)
+        for line in captured[-50:]:
+            print(f"[{self.MODEL_ID}] | {line}", file=sys.stderr, flush=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"MV-Adapter failed (exit {proc.returncode}): {full_out}")
+        if not grid_path.exists():
+            raise RuntimeError(f"MV-Adapter output not created: {full_out}")
+
+        if progress_cb:
+            progress_cb(100, "Done")
+        self.unload()
+        return grid_path
+
+    def _output_dir(self, params):
+        rf = params.get("run_folder") or params.get("output_dir") or ""
+        if rf:
+            p = Path(rf)
+            if not p.is_dir():
+                p.mkdir(parents=True, exist_ok=True)
+            return p
+        p = Path(self.outputs_dir) / f"run_mv_adapter_{id(self)}"
+        p.mkdir(parents=True, exist_ok=True)
+        return p

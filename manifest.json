@@ -1,0 +1,142 @@
+{
+  "id": "mv-adapter",
+  "name": "MV-Adapter (Multiview)",
+  "type": "model",
+  "source": "https://github.com/iammojogo-sudo/mv_adapter_i2mv_modly",
+  "description": "Generates 6 orthographic reference views from a single input image using MV-Adapter I2MV-SD2.1 at 512x512 (the low-VRAM variant, recommended for <6GB GPUs). Outputs front, front-left, left, back, right, front-right views plus a 2x2 grid of the 4 cardinal views in reading order [front, left, back, right] to feed the mesh-generation step. Post-processing keeps views consistent: the real (centered) reference replaces the model's drifting front, and every view is recentered to a uniform subject scale. The grid feeds both mesh generation and multi-reference/hybrid texturing.",
+  "version": "1.2.0",
+  "author": "iammojogo",
+  "generator_class": "MVAdapterGenerator",
+  "tags": [
+    "3d-generation",
+    "multi-view",
+    "reference-views"
+  ],
+  "nodes": [
+    {
+      "id": "generate",
+      "name": "Generate Reference Views",
+      "inputs": [
+        "image"
+      ],
+      "output": "image",
+      "hf_repo": "huanngzh/mv-adapter",
+      "download_check": "mvadapter_i2mv_sd21.safetensors",
+      "hf_include_prefixes": [
+        "mvadapter_i2mv_sd21.safetensors"
+      ],
+      "params_schema": [
+        {
+          "id": "resolution",
+          "label": "Resolution",
+          "type": "select",
+          "default": 512,
+          "options": [
+            {
+              "value": 512,
+              "label": "512 (Standard)"
+            },
+            {
+              "value": 384,
+              "label": "384 (Low VRAM / Faster)"
+            }
+          ],
+          "tooltip": "Lower resolution reduces VRAM and speeds up generation."
+        },
+        {
+          "id": "num_inference_steps",
+          "label": "Denoising Steps",
+          "type": "select",
+          "default": 50,
+          "options": [
+            {
+              "value": 25,
+              "label": "25 (Fast)"
+            },
+            {
+              "value": 50,
+              "label": "50 (Balanced)"
+            },
+            {
+              "value": 75,
+              "label": "75 (High)"
+            }
+          ],
+          "tooltip": "Number of diffusion denoising steps."
+        },
+        {
+          "id": "guidance_scale",
+          "label": "Guidance Scale",
+          "type": "select",
+          "default": 3,
+          "options": [
+            {
+              "value": 2,
+              "label": "2.0 (Low)"
+            },
+            {
+              "value": 3,
+              "label": "3.0 (Balanced)"
+            },
+            {
+              "value": 5,
+              "label": "5.0 (High)"
+            }
+          ],
+          "tooltip": "Classifier-free guidance scale."
+        },
+        {
+          "id": "remove_bg",
+          "label": "Remove Background",
+          "type": "select",
+          "default": true,
+          "options": [
+            {
+              "value": true,
+              "label": "Yes"
+            },
+            {
+              "value": false,
+              "label": "No"
+            }
+          ],
+          "tooltip": "Remove background from the reference image before generating views."
+        },
+        {
+          "id": "use_reference_front",
+          "label": "Reference As Front",
+          "type": "select",
+          "default": true,
+          "options": [
+            {
+              "value": true,
+              "label": "Yes (pixel-exact front)"
+            },
+            {
+              "value": false,
+              "label": "No (model-generated front)"
+            }
+          ],
+          "tooltip": "Use the (background-removed, centered) input photo itself as the front view instead of the model's regenerated front. Eliminates front-view scale/angle drift and lets downstream hybrid texturing bake the real photo pixels with no stretching. Recommended for both mesh generation and texturing."
+        },
+        {
+          "id": "normalize_views",
+          "label": "Normalize View Framing",
+          "type": "select",
+          "default": true,
+          "options": [
+            {
+              "value": true,
+              "label": "Yes (center + uniform scale)"
+            },
+            {
+              "value": false,
+              "label": "No (raw model output)"
+            }
+          ],
+          "tooltip": "Recenter each generated view and scale its subject to fill 90% of the frame on a uniform gray background. Fixes the per-view scale/position drift that causes bake seams and warping strain downstream."
+        }
+      ]
+    }
+  ]
+}
