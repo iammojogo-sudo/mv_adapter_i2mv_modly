@@ -94,19 +94,31 @@ I2MV_RESOLUTION = 512
 MV_DISTANCE = 1.8
 
 
-def _subject_mask(arr, tol=30):
-    """Foreground mask of an RGB array on a roughly uniform background:
-    flood-fill the background in from the 4 corners; unvisited = subject.
-    FLOODFILL_FIXED_RANGE compares against the corner seed colour, so the
-    fill cannot leak through an anti-aliased subject edge ramp."""
+def _subject_mask(arr, tol=None):
+    """Foreground mask of an RGB array on a roughly uniform (possibly
+    vignetted) background: background = pixels within an adaptive colour
+    distance of the BORDER MEDIAN that connect to the image border; the rest
+    is subject.  Distance-to-border-median survives the mild radial vignette
+    of model-rendered backdrops, which broke corner flood-fill (each corner
+    seed only filled pixels near its own brightness)."""
     import cv2
-    h, w = arr.shape[:2]
-    mask = np.zeros((h + 2, w + 2), np.uint8)
-    work = arr.copy()
-    for pt in [(0, 0), (0, w - 1), (h - 1, 0), (h - 1, w - 1)]:
-        cv2.floodFill(work, mask, pt, 0, loDiff=(tol,) * 3, upDiff=(tol,) * 3,
-                      flags=8 | cv2.FLOODFILL_FIXED_RANGE | cv2.FLOODFILL_MASK_ONLY | (1 << 8))
-    return mask[1:-1, 1:-1] == 0
+    a = arr.astype(np.int16)
+    border = np.concatenate([a[0, :], a[-1, :], a[:, 0], a[:, -1]], axis=0)
+    med = np.median(border, axis=0)
+    p90 = float(np.percentile(np.abs(border - med).max(axis=1), 90))
+    T = float(tol) if tol else max(18.0, min(60.0, 1.5 * p90 + 10.0))
+    dist = np.abs(a - med).max(axis=2)
+    bg = (dist < T).astype(np.uint8)
+    _n, lab = cv2.connectedComponents(bg)
+    edge_labels = np.unique(np.concatenate([lab[0, :], lab[-1, :], lab[:, 0], lab[:, -1]]))
+    edge_labels = edge_labels[edge_labels != 0]
+    if len(edge_labels):
+        bg = np.isin(lab, edge_labels).astype(np.uint8)
+    fg = (1 - bg).astype(np.uint8)
+    k = np.ones((3, 3), np.uint8)
+    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k, iterations=1)
+    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k, iterations=1)
+    return fg.astype(bool)
 
 
 def normalize_view_to_frame(img, resolution, fill=0.9, bg=128):
